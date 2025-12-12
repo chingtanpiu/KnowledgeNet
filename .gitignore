@@ -1,0 +1,23 @@
+# Python虚拟环境
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE配置
+.vscode/
+.idea/
+
+# 日志文件
+*.log
+
+# 环境变量文件
+.env
+.env.local
+
+# 依赖包
+*.egg-info/
+dist/
+build/
