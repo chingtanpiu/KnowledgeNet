@@ -277,6 +277,16 @@ class Store {
 
         return await response.json();
     }
+
+    // ================= Global Stats & Search =================
+
+    async getGlobalStats() {
+        return apiFetch(`${API_BASE}/stats/global`);
+    }
+
+    async searchGlobal(query) {
+        return apiFetch(`${API_BASE}/search/global?query=${encodeURIComponent(query)}`);
+    }
 }
 
 export const store = new Store();

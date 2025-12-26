@@ -8,6 +8,7 @@ export class LibraryView {
     constructor(rootElement, params) {
         this.root = rootElement;
         this.libraryId = params.id;
+        this.focusPointId = params.focus; // 记录需要聚焦的节点 ID
         this.library = null;
         this.network = null;
         this.contextMenu = new ContextMenu();
@@ -202,6 +203,17 @@ export class LibraryView {
         });
 
         this.network.start();
+
+        // 如果 URL 参数中指定了聚焦节点，则延迟聚焦（等待布局稳定）
+        if (this.focusPointId) {
+            setTimeout(() => {
+                if (this.network) {
+                    this.network.focusNode(this.focusPointId);
+                    const node = this.network.nodes.find(n => n.id === this.focusPointId);
+                    if (node) this.network.selectNode(node);
+                }
+            }, 600);
+        }
     }
 
     // ================= Advanced Features =================
@@ -1218,10 +1230,10 @@ export class LibraryView {
                     🔗 相关<br><span style="font-size: 0.8rem; color: var(--text-300);">Related</span>
                 </button>
                 <button class="btn btn-ghost link-type-btn" data-type="parent" style="flex: 1; border: 1px solid var(--glass-border);">
-                    ⬅️ 父级<br><span style="font-size: 0.8rem; color: var(--text-300);">Parent</span>
+                    ⬅️ 我是它的父<br><span style="font-size: 0.8rem; color: var(--text-300);">I am Parent</span>
                 </button>
                 <button class="btn btn-ghost link-type-btn" data-type="child" style="flex: 1; border: 1px solid var(--glass-border);">
-                    ➡️ 子级<br><span style="font-size: 0.8rem; color: var(--text-300);">Child</span>
+                    ➡️ 它是我的父<br><span style="font-size: 0.8rem; color: var(--text-300);">It is Parent</span>
                 </button>
             </div>
         `;
@@ -1266,6 +1278,14 @@ export class LibraryView {
                     execute: async () => {
                         createdLink = await store.createLink(linkData);
                         if (createdLink) {
+                            // 1. Remove any existing links between these nodes (Frontend update)
+                            // Backend already deleted them, but we need to sync frontend state
+                            const existingEdges = this.network.edges.filter(e =>
+                                (e.source.id === source.id && e.target.id === target.id) ||
+                                (e.source.id === target.id && e.target.id === source.id)
+                            );
+                            existingEdges.forEach(e => this.network.removeEdge(e.id));
+
                             this.network.addEdge(createdLink);
                             return true;
                         }

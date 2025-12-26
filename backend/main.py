@@ -173,8 +173,6 @@ def list_links(library_id: str, db: Session = Depends(get_db)):
 def create_link(data: schemas.LinkCreate, db: Session = Depends(get_db)):
     """创建链接"""
     link = crud.create_link(db, data.from_id, data.to_id, data.type)
-    if not link:
-        raise HTTPException(status_code=409, detail="Link already exists")
     return link
 
 
@@ -378,15 +376,19 @@ def export_libraries_batch(
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+@app.get("/api/stats/global", response_model=schemas.GlobalStatsResponse)
+def get_global_stats(db: Session = Depends(get_db)):
+    """获取全局统计数据"""
+    return crud.get_global_stats(db)
 
 
-    return Response(
-        content=json.dumps(export_data, ensure_ascii=False, indent=2),
-        media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
-
-
+@app.get("/api/search/global", response_model=schemas.GlobalSearchResponse)
+def search_global(
+    query: str = Query(..., min_length=1),
+    db: Session = Depends(get_db)
+):
+    """全局跨库搜索"""
+    return crud.search_global(db, query)
 @app.post("/api/import")
 async def import_libraries_endpoint(
     file: UploadFile = File(...),

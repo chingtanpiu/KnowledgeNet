@@ -216,6 +216,18 @@ export class NetworkEngine {
         this.draw();
     }
 
+    selectNode(node) {
+        this.selectedNode = node;
+        this.relatedNodes.clear();
+        if (node) {
+            this.edges.forEach(edge => {
+                if (edge.source === node) this.relatedNodes.add(edge.target);
+                if (edge.target === node) this.relatedNodes.add(edge.source);
+            });
+        }
+        this.draw();
+    }
+
     focusNode(id) {
         const node = this.nodes.find(n => n.id === id);
         if (node) {
@@ -306,10 +318,18 @@ export class NetworkEngine {
 
         // Arrow logic - 只有父子关系才画箭头，关联关系不画
         if (edge.type === 'parent' || edge.type === 'child') {
-            const angle = Math.atan2(edge.target.y - edge.source.y, edge.target.x - edge.source.x);
-            const r = edge.target.radius + 5; // Offset from center
-            const arrowX = edge.target.x - r * Math.cos(angle);
-            const arrowY = edge.target.y - r * Math.sin(angle);
+            const isParent = edge.type === 'parent';
+            // Parent: Source(Parent) -> Target(Child). Arrow at Target.
+            // Child: Source(Child) -> Target(Parent). Arrow at Source (from Target).
+
+            // Determine arrow tip position (p2) and origin/base (p1)
+            let p1 = isParent ? edge.source : edge.target;
+            let p2 = isParent ? edge.target : edge.source;
+
+            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            const r = p2.radius + 5; // Offset from center
+            const arrowX = p2.x - r * Math.cos(angle);
+            const arrowY = p2.y - r * Math.sin(angle);
 
             ctx.beginPath();
             ctx.moveTo(arrowX, arrowY);
@@ -319,30 +339,7 @@ export class NetworkEngine {
             ctx.fill();
         }
 
-        // 在边上显示类型标签（仅当选中相关节点时）
-        if (this.selectedNode && (edge.source === this.selectedNode || edge.target === this.selectedNode)) {
-            const midX = (edge.source.x + edge.target.x) / 2;
-            const midY = (edge.source.y + edge.target.y) / 2;
-            const typeLabel = edge.type === 'parent' ? '父' : (edge.type === 'child' ? '子' : '关');
-
-            ctx.font = '10px Inter, sans-serif';
-            ctx.fillStyle = color;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-
-            // 背景
-            ctx.beginPath();
-            ctx.arc(midX, midY, 10, 0, Math.PI * 2);
-            ctx.fillStyle = '#1e1e2d';
-            ctx.fill();
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            // 文字
-            ctx.fillStyle = color;
-            ctx.fillText(typeLabel, midX, midY);
-        }
+        // 移除了边上的类型标签显示 - 箭头方向已经足够表示父子关系
     }
 
     drawNode(ctx, node) {
@@ -595,7 +592,7 @@ export class NetworkEngine {
 
     // 连线碰撞检测 - 检测点到线段的距离
     edgeHitTest(pos) {
-        const threshold = 8; // 像素阈值
+        const threshold = 12; // 像素阈值 (increased from 8)
         for (const edge of this.edges) {
             if (edge.source.visible === false || edge.target.visible === false) continue;
             const dist = this.pointToSegmentDistance(pos, edge.source, edge.target);

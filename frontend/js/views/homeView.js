@@ -1,4 +1,4 @@
-import { store } from '../store.js';
+import { store } from '../store.js?v=2';
 import { Modal } from '../components/modal.js';
 import { ColorPicker } from '../components/colorPicker.js';
 import { Toast } from '../components/toast.js';
@@ -9,26 +9,58 @@ export class HomeView {
     }
 
     async render() {
-        this.root.innerHTML = `
-            <div class="container" style="padding: 40px; max-width: 1200px; margin: 0 auto;">
-                <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px;">
+        try {
+            const stats = await store.getGlobalStats().catch(err => {
+                console.warn('Failed to fetch stats:', err);
+                return { total_libraries: 0, total_points: 0, total_links: 0 };
+            });
+
+            this.root.innerHTML = `
+                <div class="container" style="padding: 40px; max-width: 1200px; margin: 0 auto;">
+                    <header style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 30px;">
                     <div>
                         <h1 style="margin-bottom: 8px;">📚 知识图谱库</h1>
-                        <p>管理您的知识网络</p>
+                        <p style="color: var(--text-300);">管理您的知识网络，连接智慧的点滴</p>
                     </div>
-                    <div style="display: flex; gap: 12px;">
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <div style="position: relative;">
+                             <input type="text" id="global-search-input" placeholder="🔍 搜索库或知识点..." 
+                                style="background: var(--bg-dark-800); border: 1px solid var(--glass-border); color: #fff; padding: 10px 16px; border-radius: 8px; width: 260px; outline: none; transition: all 0.3s;">
+                             <div id="global-search-results" class="glass-panel" style="position: absolute; top: calc(100% + 10px); right: 0; width: 400px; max-height: 500px; overflow-y: auto; z-index: 100; display: none; padding: 16px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                                <!-- Results here -->
+                             </div>
+                        </div>
                         <input type="file" id="import-input" accept=".json" style="display:none">
-                        <button id="import-btn" class="btn btn-ghost" style="border: 1px solid var(--glass-border);">
-                            📥 导入
+                        <button id="import-btn" class="btn btn-ghost" title="导入知识库" style="border: 1px solid var(--glass-border); padding: 10px;">
+                            📥
                         </button>
-                        <button id="export-all-btn" class="btn btn-ghost" style="border: 1px solid var(--glass-border);">
-                            📤 导出
+                        <button id="export-all-btn" class="btn btn-ghost" title="批量导出" style="border: 1px solid var(--glass-border); padding: 10px;">
+                            📤
                         </button>
-                        <button id="create-lib-btn" class="btn btn-primary">
-                            <span style="font-size: 1.2rem;">+</span> 新建
+                        <button id="create-lib-btn" class="btn btn-primary" style="padding: 10px 20px;">
+                            <span style="font-size: 1.2rem; line-height: 1;">+</span> 新建
                         </button>
                     </div>
                 </header>
+
+                <!-- Dashboard Stats -->
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 40px;">
+                    <div class="glass-panel" style="padding: 24px; border-radius: 16px; text-align: center; border: 1px solid var(--glass-border);">
+                        <div style="font-size: 2rem; margin-bottom: 8px;">📁</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary-color);">${stats.total_libraries}</div>
+                        <div style="color: var(--text-300); font-size: 0.9rem;">知识库数量</div>
+                    </div>
+                    <div class="glass-panel" style="padding: 24px; border-radius: 16px; text-align: center; border: 1px solid var(--glass-border);">
+                        <div style="font-size: 2rem; margin-bottom: 8px;">💡</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #4ECDC4;">${stats.total_points}</div>
+                        <div style="color: var(--text-300); font-size: 0.9rem;">知识点总数</div>
+                    </div>
+                    <div class="glass-panel" style="padding: 24px; border-radius: 16px; text-align: center; border: 1px solid var(--glass-border);">
+                        <div style="font-size: 2rem; margin-bottom: 8px;">🔗</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #FF6B6B;">${stats.total_links}</div>
+                        <div style="color: var(--text-300); font-size: 0.9rem;">关联总数</div>
+                    </div>
+                </div>
 
                 <div id="library-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px;">
                     <!-- Libraries injected here -->
@@ -37,8 +69,18 @@ export class HomeView {
             </div>
         `;
 
-        await this.loadLibraries();
-        this.bindEvents();
+            await this.loadLibraries();
+            this.bindEvents();
+        } catch (e) {
+            console.error('HomeView render failed:', e);
+            this.root.innerHTML = `
+                <div class="flex-center" style="height: 100vh; flex-direction: column;">
+                    <div style="color: var(--danger-color); font-size: 1.2rem; margin-bottom: 16px;">⚠️ 系统初始化失败</div>
+                    <div style="color: var(--text-300); margin-bottom: 24px;">${e.message}</div>
+                    <button class="btn btn-primary" onclick="window.location.reload()">重新加载</button>
+                </div>
+            `;
+        }
     }
 
     async loadLibraries() {
@@ -127,6 +169,105 @@ export class HomeView {
             }
             e.target.value = ''; // Reset input
         };
+
+        // Global Search
+        const searchInput = this.root.querySelector('#global-search-input');
+        const resultsPanel = this.root.querySelector('#global-search-results');
+        let searchTimeout;
+
+        searchInput.oninput = (e) => {
+            const query = e.target.value.trim();
+
+            // 1. Filter local library cards
+            this.filterLibraries(query);
+
+            // 2. Clear previous results
+            resultsPanel.style.display = 'none';
+            clearTimeout(searchTimeout);
+
+            if (query.length < 1) return;
+
+            // 3. Debounce global search
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const results = await store.searchGlobal(query);
+                    this.showSearchResults(results, query);
+                } catch (err) {
+                    console.error('Search failed', err);
+                }
+            }, 300);
+        };
+
+        // UI Interactions for search
+        searchInput.onfocus = () => {
+            if (resultsPanel.innerHTML.trim() !== '' && searchInput.value.trim().length >= 1) {
+                resultsPanel.style.display = 'block';
+            }
+        };
+
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !resultsPanel.contains(e.target)) {
+                resultsPanel.style.display = 'none';
+            }
+        });
+    }
+
+    filterLibraries(query) {
+        const lowerQuery = query.toLowerCase();
+        const cards = this.root.querySelectorAll('#library-grid .card');
+        cards.forEach(card => {
+            const name = card.querySelector('h3').textContent.toLowerCase();
+            const notes = card.querySelector('p').textContent.toLowerCase();
+            if (name.includes(lowerQuery) || notes.includes(lowerQuery)) {
+                card.style.display = 'block';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+    }
+
+    showSearchResults(results, query) {
+        const resultsPanel = this.root.querySelector('#global-search-results');
+
+        if (results.libraries.length === 0 && results.points.length === 0) {
+            resultsPanel.innerHTML = `<div style="color: var(--text-300); text-align: center; padding: 10px;">未找到匹配内容</div>`;
+        } else {
+            let html = '';
+
+            if (results.libraries.length > 0) {
+                html += `<div style="margin-bottom: 20px;">
+                            <div style="font-size: 0.8rem; font-weight: bold; color: var(--primary-color); margin-bottom: 10px; border-bottom: 1px solid var(--glass-border); padding-bottom: 4px;">📂 知识库 (${results.libraries.length})</div>
+                            ${results.libraries.map(lib => `
+                                <div class="search-result-item" style="padding: 8px; cursor: pointer; border-radius: 6px; transition: background 0.2s;" onclick="window.app.navigateTo('library', {id: '${lib.id}'})">
+                                    <div style="color: #fff; font-weight: 600;">${lib.name}</div>
+                                    <div style="font-size: 0.8rem; color: var(--text-300);">${lib.description || '无描述'}</div>
+                                </div>
+                            `).join('')}
+                         </div>`;
+            }
+
+            if (results.points.length > 0) {
+                html += `<div>
+                            <div style="font-size: 0.8rem; font-weight: bold; color: #4ECDC4; margin-bottom: 10px; border-bottom: 1px solid var(--glass-border); padding-bottom: 4px;">💡 知识点 (${results.points.length})</div>
+                            ${results.points.map(p => `
+                                <div class="search-result-item" style="padding: 8px; cursor: pointer; border-radius: 6px; transition: background 0.2s;" onclick="window.app.navigateTo('library', {id: '${p.library_id}', focus: '${p.id}'})">
+                                    <div style="color: #fff; font-weight: 600;">${p.title}</div>
+                                    <div style="font-size: 0.8rem; color: var(--text-300);">所属库: ${p.library_name}</div>
+                                </div>
+                            `).join('')}
+                         </div>`;
+            }
+
+            resultsPanel.innerHTML = html;
+
+            // Add hover styles
+            resultsPanel.querySelectorAll('.search-result-item').forEach(item => {
+                item.onmouseenter = () => item.style.background = 'rgba(255,255,255,0.05)';
+                item.onmouseleave = () => item.style.background = 'transparent';
+            });
+        }
+
+        resultsPanel.style.display = 'block';
     }
 
     async showExportModal() {

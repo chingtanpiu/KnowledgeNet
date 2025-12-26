@@ -310,58 +310,23 @@ def create_link(db: Session, from_id: str, to_id: str, link_type: str = "related
     2. related 类型是双向的，A→B 和 B→A 视为同一关系，只能存在一个
     3. parent/child 类型不能互为父子 (A是B的父，则B不能是A的父)
     """
-    # 规则1: 检查完全相同的链接
-    existing_same = db.scalar(
-        select(Link).where(
-            Link.from_id == from_id,
-            Link.to_id == to_id,
-            Link.type == link_type
-        )
-    )
-    if existing_same:
-        return None
+    # 新规则：互斥性 (Mutually Exclusive)
+    # 无论原先是什么关系 (parent/child/related)，只要建立了新关系，旧关系一律清除。
+    # 这意味着两个节点之间永远只能存在一条边（无论方向）。
+    
+    # 1. 删除 A->B 的所有现有链接
+    db.query(Link).filter(
+        Link.from_id == from_id, 
+        Link.to_id == to_id
+    ).delete()
 
-    # 规则2: related 类型检查反向
-    if link_type == "related":
-        existing_reverse = db.scalar(
-            select(Link).where(
-                Link.from_id == to_id,
-                Link.to_id == from_id,
-                Link.type == "related"
-            )
-        )
-        if existing_reverse:
-            return None
+    # 2. 删除 B->A 的所有现有链接
+    db.query(Link).filter(
+        Link.from_id == to_id, 
+        Link.to_id == from_id
+    ).delete()
 
-    # 规则3: parent/child 不能互为父子
-    # 如果创建 A→B type=parent (A是B的父节点)
-    # 则不能存在 B→A type=parent (B是A的父节点)
-    # 同理 child 类型
-    if link_type in ("parent", "child"):
-        # 检查反向同类型
-        existing_reverse = db.scalar(
-            select(Link).where(
-                Link.from_id == to_id,
-                Link.to_id == from_id,
-                Link.type == link_type
-            )
-        )
-        if existing_reverse:
-            return None
-
-        # 还要检查互补类型
-        # 如果A→B是parent，则B→A不能是child (因为这意味着A是B的父，同时B又是A的父)
-        opposite_type = "child" if link_type == "parent" else "parent"
-        existing_opposite = db.scalar(
-            select(Link).where(
-                Link.from_id == to_id,
-                Link.to_id == from_id,
-                Link.type == opposite_type
-            )
-        )
-        if existing_opposite:
-            return None
-
+    # 3. 创建新链接
     link = Link(from_id=from_id, to_id=to_id, type=link_type)
     db.add(link)
     db.commit()
@@ -564,3 +529,51 @@ def import_libraries_from_data(db: Session, data: list[dict]) -> int:
         
     db.commit()
     return count
+
+
+# ==================== 全局统计与搜索 ====================
+
+def get_global_stats(db: Session) -> dict:
+    """获取全局聚合统计数据"""
+    total_libraries = db.scalar(select(func.count(Library.id)))
+    total_points = db.scalar(select(func.count(Point.id)))
+    total_links = db.scalar(select(func.count(Link.id)))
+    
+    return {
+        "total_libraries": total_libraries or 0,
+        "total_points": total_points or 0,
+        "total_links": total_links or 0
+    }
+
+
+def search_global(db: Session, query: str) -> dict:
+    """全局跨库搜索"""
+    # 1. 搜索知识库
+    libraries = db.scalars(
+        select(Library)
+        .where(Library.name.ilike(f"%{query}%") | Library.description.ilike(f"%{query}%"))
+        .limit(10)
+    ).all()
+    
+    # 2. 搜索知识点
+    points = db.scalars(
+        select(Point)
+        .where(Point.title.ilike(f"%{query}%") | Point.content.ilike(f"%{query}%"))
+        .limit(20)
+    ).all()
+    
+    return {
+        "libraries": [
+            {"id": lib.id, "name": lib.name, "description": lib.description} 
+            for lib in libraries
+        ],
+        "points": [
+            {
+                "id": p.id, 
+                "title": p.title, 
+                "library_id": p.library_id,
+                "library_name": p.library.name if p.library else "Unknown"
+            }
+            for p in points
+        ]
+    }

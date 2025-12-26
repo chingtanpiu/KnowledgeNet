@@ -194,3 +194,29 @@ class ExportRequest(BaseModel):
 
 class BatchExportRequest(BaseModel):
     library_ids: list[str] = Field(default_factory=list)  # 空列表表示导出所有知识库
+
+
+# ==================== 全局统计与搜索 ====================
+
+class GlobalStatsResponse(BaseModel):
+    total_libraries: int
+    total_points: int
+    total_links: int
+
+
+class SearchResultLibrary(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+
+
+class SearchResultPoint(BaseModel):
+    id: str
+    title: str
+    library_id: str
+    library_name: str
+
+
+class GlobalSearchResponse(BaseModel):
+    libraries: list[SearchResultLibrary]
+    points: list[SearchResultPoint]

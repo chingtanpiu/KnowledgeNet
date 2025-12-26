@@ -1,5 +1,5 @@
 import { store } from './store.js';
-import { HomeView } from './views/homeView.js?v=2';
+import { HomeView } from './views/homeView.js?v=3';
 import { LibraryView } from './views/libraryView.js';
 
 class App {
