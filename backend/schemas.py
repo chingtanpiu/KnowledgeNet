@@ -66,6 +66,8 @@ class LibraryResponse(LibraryBase):
     sources: list[SourceResponse] = []
     created_at: datetime
     updated_at: datetime
+    point_count: int = 0
+    link_count: int = 0
 
     class Config:
         from_attributes = True
@@ -77,6 +79,8 @@ class LibraryListResponse(BaseModel):
     description: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    point_count: int = 0
+    link_count: int = 0
 
     class Config:
         from_attributes = True
@@ -186,3 +190,7 @@ class WordFrequencyResponse(BaseModel):
 class ExportRequest(BaseModel):
     format: str = "json"  # json, markdown, csv
     tag_filter: Optional[list[str]] = None  # 按标签筛选
+
+
+class BatchExportRequest(BaseModel):
+    library_ids: list[str] = Field(default_factory=list)  # 空列表表示导出所有知识库

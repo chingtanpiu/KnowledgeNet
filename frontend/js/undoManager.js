@@ -19,7 +19,14 @@ class UndoManager {
      */
     async execute(action) {
         try {
-            await action.execute();
+            const result = await action.execute();
+
+            // 如果执行返回 false，说明操作无效或被取消，不加入撤销栈
+            if (result === false) {
+                console.log(`[Undo] 操作无效/取消: ${action.description}`);
+                return;
+            }
+
             this.undoStack.push(action);
             this.redoStack = [];  // 执行新操作后清空恢复栈
 

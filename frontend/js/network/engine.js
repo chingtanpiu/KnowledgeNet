@@ -14,7 +14,8 @@ export class NetworkEngine {
             y: p.y || (Math.random() - 0.5) * 600,
             radius: 30,
             vx: 0,
-            vy: 0
+            vy: 0,
+            visible: true
         }));
 
         // Edges need reference to node objects
@@ -42,6 +43,7 @@ export class NetworkEngine {
         // Highlighting
         this.selectedNode = null;
         this.relatedNodes = new Set(); // Nodes connected to selected
+        this.highlightedIds = null; // Set of IDs from search matches
 
         this.bindEvents();
         this.resize();
@@ -180,6 +182,52 @@ export class NetworkEngine {
         });
     }
 
+    updateFilter(tagIds, mode) {
+        // tagIds: null/empty means all visible
+        // mode: 'AND' or 'OR'
+
+        this.nodes.forEach(node => {
+            if (!tagIds || tagIds.length === 0) {
+                node.visible = true;
+                return;
+            }
+
+            const nodeTags = node.tags || [];
+
+            if (mode === 'OR') {
+                // node has ANY of the tagIds
+                node.visible = nodeTags.some(t => tagIds.includes(t.id));
+            } else { // AND
+                // node has ALL of the tagIds
+                // Check if every tagId is present in nodeTags
+                node.visible = tagIds.every(reqId => nodeTags.some(t => t.id === reqId));
+            }
+        });
+
+        this.draw();
+    }
+
+    highlightNodes(ids) {
+        if (!ids || ids.length === 0) {
+            this.highlightedIds = null;
+        } else {
+            this.highlightedIds = new Set(ids);
+        }
+        this.draw();
+    }
+
+    focusNode(id) {
+        const node = this.nodes.find(n => n.id === id);
+        if (node) {
+            // Animate or snap camera
+            // Snap for now
+            this.camera.x = -node.x;
+            this.camera.y = -node.y;
+            this.camera.k = 1.5; // Zoom in a bit
+            this.draw();
+        }
+    }
+
     draw() {
         const { width, height } = this.canvas;
         const ctx = this.ctx;
@@ -190,7 +238,11 @@ export class NetworkEngine {
         ctx.scale(this.camera.k, this.camera.k);
 
         // Draw Links
-        this.edges.forEach(edge => this.drawEdge(ctx, edge));
+        this.edges.forEach(edge => {
+            if (edge.source.visible !== false && edge.target.visible !== false) {
+                this.drawEdge(ctx, edge);
+            }
+        });
 
         // Draw Temp Link (Dragging)
         if (this.linkingNode) {
@@ -207,7 +259,9 @@ export class NetworkEngine {
         }
 
         // Draw Nodes
-        this.nodes.forEach(node => this.drawNode(ctx, node));
+        this.nodes.forEach(node => {
+            if (node.visible !== false) this.drawNode(ctx, node);
+        });
 
         ctx.restore();
     }
@@ -306,9 +360,11 @@ export class NetworkEngine {
         // Dimming Logic
         const isSelected = node === this.selectedNode;
         const isRelated = this.relatedNodes.has(node);
-        const dimData = this.selectedNode && !isSelected && !isRelated;
+        // Dim if: (Selected node exists AND not selected/related) OR (Search active AND not in search results)
+        const dimBySelection = this.selectedNode && !isSelected && !isRelated;
+        const dimBySearch = this.highlightedIds && !this.highlightedIds.has(node.id);
 
-        if (dimData) {
+        if (dimBySelection || dimBySearch) {
             ctx.globalAlpha = 0.2;
         }
 
@@ -523,17 +579,25 @@ export class NetworkEngine {
     }
 
     hitTest(pos) {
-        return this.nodes.find(n => {
+        // Reverse iterate for top-most check (though z-index isn't strictly ordered by index in draw)
+        for (let i = this.nodes.length - 1; i >= 0; i--) {
+            const n = this.nodes[i];
+            if (n.visible === false) continue;
+
             const dx = n.x - pos.x;
             const dy = n.y - pos.y;
-            return dx * dx + dy * dy < n.radius * n.radius;
-        });
+            if (dx * dx + dy * dy < n.radius * n.radius) {
+                return n;
+            }
+        }
+        return null;
     }
 
     // 连线碰撞检测 - 检测点到线段的距离
     edgeHitTest(pos) {
         const threshold = 8; // 像素阈值
         for (const edge of this.edges) {
+            if (edge.source.visible === false || edge.target.visible === false) continue;
             const dist = this.pointToSegmentDistance(pos, edge.source, edge.target);
             if (dist < threshold) {
                 return edge;

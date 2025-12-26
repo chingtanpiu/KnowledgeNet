@@ -237,6 +237,46 @@ class Store {
 
         return true;
     }
+
+    async batchExport(libraryIds = []) {
+        const response = await fetch(`${API_BASE}/export/batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ library_ids: libraryIds })
+        });
+
+        if (!response.ok) {
+            throw new Error('Export failed');
+        }
+
+        const blob = await response.blob();
+        const filename = response.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1]
+            || `knowledge_batch_export.json`;
+
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        return true;
+    }
+
+    async importLibrary(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${API_BASE}/import`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: 'Import failed' }));
+            throw new Error(error.detail || `HTTP ${response.status}`);
+        }
+
+        return await response.json();
+    }
 }
 
 export const store = new Store();

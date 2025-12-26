@@ -34,19 +34,37 @@ export class LibraryView {
                         <button class="btn btn-ghost" onclick="window.app.navigateTo('home')">← 返回</button>
                         <h2 style="font-size: 1.25rem;">${this.library.name}</h2>
                     </div>
-                    <div style="display: flex; gap: 12px;">
-                        <button class="btn btn-ghost" id="stats-btn">📊 词频统计</button>
-                        <button class="btn btn-ghost" id="export-btn">📤 导出</button>
+                </div>
+                <!-- Toolbar -->
+                <div style="position: absolute; top: 20px; right: 20px; display: flex; gap: 12px; z-index: 10;">
+                    <div style="position: relative;">
+                        <input type="text" id="search-input" placeholder="🔍 搜索知识点..." 
+                            style="background: rgba(30, 30, 46, 0.8); border: 1px solid var(--glass-border); color: #fff; padding: 8px 12px; border-radius: 6px; backdrop-filter: blur(10px); width: 200px; transition: width 0.3s; outline: none;">
                     </div>
+                    <button id="stats-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px);" title="统计">📊</button>
+                    <button id="export-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px);" title="导出">📥</button>
+                    <button id="close-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px);" title="返回" onclick="window.app.navigateTo('home')">✖️</button>
                 </div>
 
-                <div class="glass-panel" style="position: absolute; top: 70px; left: 24px; padding: 8px 16px; border-radius: 8px; z-index: 10;">
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <span style="font-size: 0.9rem; color: var(--text-200);">标签筛选:</span>
-                        <select id="tag-filter" class="form-select" style="padding: 4px 8px; width: auto; font-size: 0.9rem;">
-                            <option value="all">全部</option>
-                            ${(this.library.tags || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
-                        </select>
+                <div class="glass-panel" style="position: absolute; top: 70px; left: 24px; padding: 12px; border-radius: 8px; z-index: 10; width: 220px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-size: 0.9rem; color: var(--text-200); font-weight: 600;">标签筛选</span>
+                        <div class="logic-switch" style="display: flex; background: var(--bg-dark-800); border-radius: 12px; padding: 2px;">
+                            <button class="filter-logic-btn active" data-logic="OR" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 10px; border: none; background: var(--primary-color); color: white; cursor: pointer; transition: all 0.2s;">(OR)</button>
+                            <button class="filter-logic-btn" data-logic="AND" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 10px; border: none; background: transparent; color: var(--text-300); cursor: pointer; transition: all 0.2s;">(AND)</button>
+                        </div>
+                    </div>
+                    <div id="tag-filter-container" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 300px; overflow-y: auto;">
+                        <label class="tag-check-label" style="display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: var(--bg-dark-800); border-radius: 12px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--glass-border);">
+                            <input type="checkbox" value="all" checked> 全部
+                        </label>
+                        ${(this.library.tags || []).map(t => `
+                            <label class="tag-check-label" style="display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: var(--bg-dark-800); border-radius: 12px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--glass-border);">
+                                <input type="checkbox" value="${t.id}"> 
+                                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${t.color};"></span>
+                                ${t.name}
+                            </label>
+                        `).join('')}
                     </div>
                 </div>
 
@@ -58,14 +76,112 @@ export class LibraryView {
 
         this.initNetwork();
         this.bindEvents();
+        this.initFilterLogic();
     }
 
     bindEvents() {
         this.root.querySelector('#stats-btn').onclick = () => this.showStatsModal();
         this.root.querySelector('#export-btn').onclick = () => this.showExportModal();
-        this.root.querySelector('#tag-filter').onchange = (e) => {
-            Toast.show(`筛选: ${e.target.value} (暂未实装)`, 'info');
+    }
+
+    initFilterLogic() {
+        let currentLogic = 'OR';
+        const logicBtns = this.root.querySelectorAll('.filter-logic-btn');
+        const checkboxes = this.root.querySelectorAll('#tag-filter-container input[type="checkbox"]');
+
+        // Handle Logic Switch
+        logicBtns.forEach(btn => {
+            btn.onclick = () => {
+                currentLogic = btn.dataset.logic;
+                logicBtns.forEach(b => {
+                    b.classList.remove('active');
+                    b.style.background = 'transparent';
+                    b.style.color = 'var(--text-300)';
+                });
+                btn.classList.add('active');
+                btn.style.background = 'var(--primary-color)';
+                btn.style.color = 'white';
+
+                this.applyFilter(currentLogic);
+            };
+        });
+        // Search
+        const searchInput = this.root.querySelector('#search-input');
+        searchInput.oninput = (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            if (!this.network) return;
+
+            if (!query) {
+                this.network.highlightNodes(null);
+                return;
+            }
+
+            const matchedIds = this.network.nodes
+                .filter(n => n.title.toLowerCase().includes(query) || n.content.toLowerCase().includes(query))
+                .map(n => n.id);
+
+            this.network.highlightNodes(matchedIds);
         };
+        searchInput.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                const query = e.target.value.trim().toLowerCase();
+                if (!this.network || !query) return;
+
+                const firstMatch = this.network.nodes
+                    .find(n => n.title.toLowerCase().includes(query) || n.content.toLowerCase().includes(query));
+
+                if (firstMatch) {
+                    this.network.focusNode(firstMatch.id);
+                }
+            }
+        };
+
+        // Handle Checkboxes
+        checkboxes.forEach(cb => {
+            cb.onchange = (e) => {
+                const val = e.target.value;
+                if (val === 'all') {
+                    if (e.target.checked) {
+                        // Uncheck others
+                        checkboxes.forEach(c => {
+                            if (c.value !== 'all') c.checked = false;
+                        });
+                    }
+                } else {
+                    // Uncheck 'all' if specific tag selected
+                    if (e.target.checked) {
+                        const allCb = this.root.querySelector('input[value="all"]');
+                        if (allCb) allCb.checked = false;
+                    }
+                }
+
+                // If nothing checked, check 'all'
+                const anyChecked = Array.from(checkboxes).some(c => c.checked);
+                if (!anyChecked) {
+                    const allCb = this.root.querySelector('input[value="all"]');
+                    if (allCb) allCb.checked = true;
+                }
+
+                this.applyFilter(currentLogic);
+            };
+        });
+    }
+
+    applyFilter(logic) {
+        const checkboxes = this.root.querySelectorAll('#tag-filter-container input[type="checkbox"]');
+        const selectedIds = [];
+        let isAll = false;
+
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                if (cb.value === 'all') isAll = true;
+                else selectedIds.push(cb.value);
+            }
+        });
+
+        if (this.network) {
+            this.network.updateFilter(isAll ? null : selectedIds, logic);
+        }
     }
 
     async initNetwork() {
@@ -392,8 +508,12 @@ export class LibraryView {
             await undoManager.execute({
                 description: `删除链接 "${edge.source.title}" ↔ "${edge.target.title}"`,
                 execute: async () => {
-                    await store.deleteLink(edgeData.id);
-                    this.network.removeEdge(edgeData.id);
+                    const success = await store.deleteLink(edgeData.id);
+                    if (success) {
+                        this.network.removeEdge(edgeData.id);
+                        return true;
+                    }
+                    return false;
                 },
                 undo: async () => {
                     const newLink = await store.createLink({
@@ -936,7 +1056,11 @@ export class LibraryView {
                     description: `创建知识点 "${title}"`,
                     execute: async () => {
                         createdPoint = await store.createPoint(pointData);
-                        this.network.addNode(createdPoint);
+                        if (createdPoint) {
+                            this.network.addNode(createdPoint);
+                            return true;
+                        }
+                        return false;
                     },
                     undo: async () => {
                         if (createdPoint) {
@@ -946,8 +1070,10 @@ export class LibraryView {
                     }
                 });
 
-                modal.hide();
-                Toast.show('知识点已创建 (Ctrl+Z 撤销)', 'success');
+                if (createdPoint) {
+                    modal.hide();
+                    Toast.show('知识点已创建 (Ctrl+Z 撤销)', 'success');
+                }
             }
         });
         modal.show();
@@ -1058,8 +1184,12 @@ export class LibraryView {
             await undoManager.execute({
                 description: `删除知识点 "${node.title}"`,
                 execute: async () => {
-                    await store.deletePoint(nodeData.id);
-                    this.network.removeNode(nodeData.id);
+                    const success = await store.deletePoint(nodeData.id);
+                    if (success) {
+                        this.network.removeNode(nodeData.id);
+                        return true;
+                    }
+                    return false;
                 },
                 undo: async () => {
                     // 重新创建知识点
@@ -1137,7 +1267,9 @@ export class LibraryView {
                         createdLink = await store.createLink(linkData);
                         if (createdLink) {
                             this.network.addEdge(createdLink);
+                            return true;
                         }
+                        return false;
                     },
                     undo: async () => {
                         if (createdLink) {

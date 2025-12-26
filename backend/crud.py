@@ -11,18 +11,64 @@ from .models import Library, Tag, Source, Point, Link, Snapshot, point_tag_table
 
 # ==================== 知识库 ====================
 
-def get_libraries(db: Session) -> list[Library]:
-    """获取所有知识库"""
-    return list(db.scalars(select(Library).order_by(Library.created_at.desc())).all())
+def get_libraries(db: Session) -> list[dict]:
+    """获取所有知识库（含统计数据）"""
+    # 子查询：统计知识点数量
+    point_count_subq = (
+        select(func.count(Point.id))
+        .where(Point.library_id == Library.id)
+        .correlate(Library)
+        .scalar_subquery()
+    )
+    
+    # 子查询：统计链接数量 (通过 from_id 关联到 Point 再关联到 Library)
+    link_count_subq = (
+        select(func.count(Link.id))
+        .join(Point, Link.from_id == Point.id)
+        .where(Point.library_id == Library.id)
+        .correlate(Library)
+        .scalar_subquery()
+    )
+
+    query = select(Library, point_count_subq, link_count_subq).order_by(Library.created_at.desc())
+    results = db.execute(query).all()
+
+    # 构造响应字典 (因为 Pydantic from_attributes=True 可以从 dict 读取)
+    libraries = []
+    for lib, p_count, l_count in results:
+        lib_dict = lib.__dict__.copy()
+        lib_dict['point_count'] = p_count or 0
+        lib_dict['link_count'] = l_count or 0
+        libraries.append(lib_dict)
+    
+    return libraries
 
 
-def get_library(db: Session, library_id: str) -> Optional[Library]:
-    """获取单个知识库（含标签和出处）"""
-    return db.scalar(
+def get_library(db: Session, library_id: str) -> Optional[dict]:
+    """获取单个知识库（含标签、出处和统计数据）"""
+    library = db.scalar(
         select(Library)
         .options(selectinload(Library.tags), selectinload(Library.sources))
         .where(Library.id == library_id)
     )
+    if not library:
+        return None
+
+    # 另外查询统计（单个查询开销不大）
+    point_count = db.scalar(select(func.count(Point.id)).where(Point.library_id == library_id))
+    link_count = db.scalar(
+        select(func.count(Link.id))
+        .join(Point, Link.from_id == Point.id)
+        .where(Point.library_id == library_id)
+    )
+
+    lib_dict = library.__dict__.copy()
+    lib_dict['tags'] = library.tags
+    lib_dict['sources'] = library.sources
+    lib_dict['point_count'] = point_count or 0
+    lib_dict['link_count'] = link_count or 0
+    
+    return lib_dict
 
 
 def create_library(db: Session, name: str, description: Optional[str] = None,
@@ -416,3 +462,105 @@ def get_word_frequency(db: Session, library_id: str, mode: str = "content") -> l
     # 按频率排序
     sorted_words = sorted(word_count.items(), key=lambda x: x[1], reverse=True)
     return sorted_words[:100]  # 返回前 100 个
+
+
+# ==================== 导入 ====================
+
+def import_libraries_from_data(db: Session, data: list[dict]) -> int:
+    """从 JSON 数据导入库
+    
+    返回导入成功的库数量
+    """
+    count = 0
+    for lib_data in data:
+        meta = lib_data.get("meta")
+        if not meta:
+            continue
+            
+        # 1. 创建新 Library (即使 ID 一样也创建新的，避免冲突)
+        # 为区别导入，可以在名字后加 (Imported) 或者保留原名让用户自己改
+        # 这里保留原名 (UUID 会变)
+        new_lib = Library(
+            name=meta["name"],
+            description=meta.get("description")
+        )
+        db.add(new_lib)
+        db.flush()
+        
+        # 2. 导入 Tags
+        # 建立 tag_name -> tag_obj 映射
+        tag_map = {}
+        if "tags" in meta:
+            for t in meta["tags"]:
+                new_tag = Tag(
+                    library_id=new_lib.id,
+                    name=t["name"],
+                    color=t.get("color", "#3F51B5")
+                )
+                db.add(new_tag)
+                tag_map[t["name"]] = new_tag
+        db.flush()
+        
+        # 3. 导入 Sources
+        # 建立 source_name -> source_id (其实 Point 用的是 name 还是 id? Point 模型里 source 是 str(256), page 是 str. Point.source 存的是名字.)
+        # 确实 Point.source 是 Mapped[str]. 而 Source 表是 Mapped[str].
+        # 逻辑上 Point.source 应该是 Source 表的 ID 或者是 Name? 
+        # 查看 create_point: source=source. 
+        # Source 表存在主要是为了下拉菜单配置.
+        # 所以导入 Source 表即可.
+        if "sources" in meta:
+            for s in meta["sources"]:
+                new_source = Source(
+                    library_id=new_lib.id,
+                    name=s["name"]
+                )
+                db.add(new_source)
+        
+        # 4. 导入 Points
+        # 建立 old_id -> new_id 映射
+        id_map = {}
+        for p in lib_data.get("points", []):
+            new_point = Point(
+                library_id=new_lib.id,
+                title=p["title"],
+                content=p["content"],
+                source=p.get("source"),
+                page=p.get("page"),
+                x=p.get("x", 0.0),
+                y=p.get("y", 0.0)
+            )
+            
+            # 关联标签
+            if "tags" in p:
+                p_tags = []
+                for t_name in p["tags"]:
+                    if t_name in tag_map:
+                        p_tags.append(tag_map[t_name])
+                    # 如果 export data 里的 tag 在 meta 里没定义? (数据不一致). 忽略或创建? 忽略稳妥.
+                new_point.tags = p_tags
+                
+            db.add(new_point)
+            db.flush()
+            id_map[p["id"]] = new_point.id
+            
+            # 创建初始快照
+            _create_snapshot(db, new_point)
+
+        # 5. 导入 Links
+        for l in lib_data.get("links", []):
+            from_id = l.get("fromId")
+            to_id = l.get("toId")
+            
+            # 只有当起点和终点都在本次导入中，才创建链接 (不支持跨库链接其实)
+            if from_id in id_map and to_id in id_map:
+                new_link = Link(
+                    from_id=id_map[from_id],
+                    to_id=id_map[to_id],
+                    type=l.get("type", "related")
+                )
+                db.add(new_link)
+        
+        count += 1
+        
+    db.commit()
+    return count

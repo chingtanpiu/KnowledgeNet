@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -309,6 +309,104 @@ def export_library(
             media_type="text/csv",
             headers={"Content-Disposition": f'attachment; filename="{library.name}.csv"'}
         )
+
+
+@app.post("/api/export/batch")
+def export_libraries_batch(
+    data: schemas.BatchExportRequest,
+    db: Session = Depends(get_db)
+):
+    """批量导出知识库"""
+    from datetime import datetime
+    
+    if not data.library_ids:
+        # Export all
+        libraries = crud.get_libraries(db)
+    else:
+        # Export selected
+        libraries = []
+        for lid in data.library_ids:
+            lib = crud.get_library(db, lid)
+            if lib:
+                libraries.append(lib)
+
+    export_data = []
+    for lib_summary in libraries:
+        # Re-fetch full library data to ensure eager loading of relations
+        full_lib = crud.get_library(db, lib_summary.id)
+        if not full_lib:
+            continue
+            
+        points = crud.get_points(db, full_lib.id)
+        links = crud.get_links(db, full_lib.id)
+
+        lib_data = {
+            "meta": {
+                "id": full_lib.id,
+                "name": full_lib.name,
+                "description": full_lib.description,
+                "tags": [{"name": t.name, "color": t.color, "id": t.id} for t in full_lib.tags],
+                "sources": [{"name": s.name, "id": s.id} for s in full_lib.sources],
+                "created_at": full_lib.created_at.isoformat() if full_lib.created_at else None,
+                "updated_at": full_lib.updated_at.isoformat() if full_lib.updated_at else None,
+            },
+            "points": [
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "content": p.content,
+                    "source": p.source,
+                    "page": p.page,
+                    "tags": [t.name for t in p.tags],
+                    "x": p.x,
+                    "y": p.y
+                }
+                for p in points
+            ],
+            "links": [
+                {"id": l.id, "fromId": l.from_id, "toId": l.to_id, "type": l.type}
+                for l in links
+            ]
+        }
+        export_data.append(lib_data)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"knowledge_export_batch_{timestamp}.json"
+    
+    return Response(
+        content=json.dumps(export_data, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+    return Response(
+        content=json.dumps(export_data, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@app.post("/api/import")
+async def import_libraries_endpoint(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """导入知识库 (JSON)"""
+    content = await file.read()
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict):
+            data = [data]
+        elif not isinstance(data, list):
+            raise HTTPException(status_code=400, detail="Invalid JSON format: expected list or dict")
+            
+        count = crud.import_libraries_from_data(db, data)
+        return {"success": True, "count": count}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON file")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Import failed: {str(e)}")
 
 
 # ==================== 健康检查 ====================

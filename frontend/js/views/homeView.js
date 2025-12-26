@@ -1,6 +1,7 @@
 import { store } from '../store.js';
 import { Modal } from '../components/modal.js';
 import { ColorPicker } from '../components/colorPicker.js';
+import { Toast } from '../components/toast.js';
 
 export class HomeView {
     constructor(rootElement) {
@@ -15,9 +16,18 @@ export class HomeView {
                         <h1 style="margin-bottom: 8px;">📚 知识图谱库</h1>
                         <p>管理您的知识网络</p>
                     </div>
-                    <button id="create-lib-btn" class="btn btn-primary">
-                        <span style="font-size: 1.2rem;">+</span> 新建知识库
-                    </button>
+                    <div style="display: flex; gap: 12px;">
+                        <input type="file" id="import-input" accept=".json" style="display:none">
+                        <button id="import-btn" class="btn btn-ghost" style="border: 1px solid var(--glass-border);">
+                            📥 导入
+                        </button>
+                        <button id="export-all-btn" class="btn btn-ghost" style="border: 1px solid var(--glass-border);">
+                            📤 导出
+                        </button>
+                        <button id="create-lib-btn" class="btn btn-primary">
+                            <span style="font-size: 1.2rem;">+</span> 新建
+                        </button>
+                    </div>
                 </header>
 
                 <div id="library-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px;">
@@ -63,8 +73,8 @@ export class HomeView {
                      ${(lib.tags || []).length > 3 ? `<span class="tag" style="background-color: var(--bg-dark-600); color: var(--text-200);">+${lib.tags.length - 3}</span>` : ''}
                 </div>
                 <div style="display: flex; gap: 12px; font-size: 0.85rem; color: var(--text-300); border-top: 1px solid var(--glass-border); padding-top: 16px;">
-                    <span>📊 0 知识点</span> <!-- TODO: Real counts -->
-                    <span>🔗 0 链接</span>
+                    <span>📊 ${lib.point_count || 0} 知识点</span>
+                    <span>🔗 ${lib.link_count || 0} 链接</span>
                 </div>
             </div>
         `).join('');
@@ -91,12 +101,106 @@ export class HomeView {
     }
 
     bindEvents() {
+        console.log('HomeView.bindEvents called');
         this.root.querySelector('#create-lib-btn').onclick = () => this.showCreateModal();
+        this.root.querySelector('#export-all-btn').onclick = () => {
+            console.log('Export button clicked');
+            this.showExportModal();
+        };
+
+        // Import logic
+        this.root.querySelector('#import-btn').onclick = () => {
+            this.root.querySelector('#import-input').click();
+        };
+        this.root.querySelector('#import-input').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                Toast.show('正在导入...', 'info');
+                const result = await store.importLibrary(file);
+                Toast.show(`成功导入 ${result.count} 个知识库`, 'success');
+                this.loadLibraries();
+            } catch (err) {
+                console.error(err);
+                Toast.show('导入失败: ' + err.message, 'error');
+            }
+            e.target.value = ''; // Reset input
+        };
+    }
+
+    async showExportModal() {
+        console.log('showExportModal started');
+        try {
+            const libraries = await store.getLibraries();
+            console.log('Libraries fetched for export:', libraries.length);
+
+            const content = `
+                <div style="margin-bottom: 20px;">
+                <p style="margin-bottom: 12px; color: var(--text-200);">选择要导出的知识库（JSON格式）：</p>
+                <div style="background: var(--bg-dark-900); border: 1px solid var(--glass-border); border-radius: 8px; max-height: 300px; overflow-y: auto; padding: 12px;">
+                    <label style="display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--glass-border); margin-bottom: 8px; font-weight: 600;">
+                        <input type="checkbox" id="export-select-all"> 全选 / 取消全选
+                    </label>
+                    <div id="export-list" style="display: flex; flex-direction: column; gap: 8px;">
+                        ${libraries.map(lib => `
+                            <label style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" class="lib-check" value="${lib.id}">
+                                <span>${lib.name}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+
+            const modal = new Modal({
+                title: '批量导出知识库',
+                content: content,
+                onConfirm: async () => {
+                    const checkboxes = document.querySelectorAll('.lib-check');
+                    const selectedIds = Array.from(checkboxes)
+                        .filter(cb => cb.checked)
+                        .map(cb => cb.value);
+
+                    if (selectedIds.length === 0) {
+                        Toast.show('请至少选择一个知识库', 'error');
+                        return;
+                    }
+
+                    Toast.show('正在准备导出...', 'info');
+                    try {
+                        await store.batchExport(selectedIds);
+                        Toast.show('导出成功', 'success');
+                        modal.hide();
+                    } catch (e) {
+                        Toast.show('导出失败: ' + e.message, 'error');
+                    }
+                }
+            });
+
+            modal.show();
+
+            // Bind Select All
+            // Wait for modal DOM insertion
+            setTimeout(() => {
+                const selectAll = document.getElementById('export-select-all');
+                const libChecks = document.querySelectorAll('.lib-check');
+                if (selectAll) {
+                    selectAll.onchange = (e) => {
+                        libChecks.forEach(cb => cb.checked = e.target.checked);
+                    };
+                }
+            }, 100);
+        } catch (e) {
+            console.error(e);
+            alert('Export failed: ' + e.message);
+        }
     }
 
     showCreateModal() {
         const formHtml = `
-            <div class="form-group">
+    <div class="form-group">
                 <label class="form-label">知识库名称 *</label>
                 <input type="text" id="lib-name" class="form-input" placeholder="例如：法律知识网络库">
             </div>
@@ -108,7 +212,7 @@ export class HomeView {
                 <label class="form-label">备注 *</label>
                 <textarea id="lib-notes" class="form-textarea" placeholder="简要描述该知识库的内容..."></textarea>
             </div>
-        `;
+`;
 
         const modal = new Modal({
             title: '新建知识点网络库',
@@ -193,7 +297,7 @@ export class HomeView {
                     </div>
                 </div>
             </div>
-        `;
+    `;
 
         const modal = new Modal({
             title: '编辑知识库配置',
