@@ -95,11 +95,11 @@ def create_library(db: Session, name: str, description: Optional[str] = None,
     return library
 
 
-def update_library(db: Session, library_id: str, name: Optional[str] = None,
-                   description: Optional[str] = None, tags: list[dict] = None,
-                   sources: list[dict] = None) -> Optional[Library]:
+
+def update_library(db: Session, library_id: str, name: str = None, description: str = None, 
+                   tags: list[dict] = None, sources: list[dict] = None) -> Optional[Library]:
     """更新知识库"""
-    library = get_library(db, library_id)
+    library = db.get(Library, library_id)
     if not library:
         return None
 

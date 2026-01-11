@@ -1,11 +1,12 @@
 export class NetworkEngine {
-    constructor(canvas, { libraryId, points, edges = [], libraryConfig, onContextMenu, onLink }) {
+    constructor(canvas, { libraryId, points, edges = [], libraryConfig, onContextMenu, onLink, onNodeDoubleClick }) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.libraryId = libraryId;
         this.libraryConfig = libraryConfig;
         this.onContextMenu = onContextMenu;
         this.onLink = onLink; // Callback for link creation
+        this.onNodeDoubleClick = onNodeDoubleClick; // Callback for node double-click
 
         // Data
         this.nodes = points.map(p => ({
@@ -41,7 +42,7 @@ export class NetworkEngine {
         this.animationId = null;
 
         // Highlighting
-        this.selectedNode = null;
+        this.selectedNodes = []; // Array of selected nodes for multi-selection
         this.relatedNodes = new Set(); // Nodes connected to selected
         this.highlightedIds = null; // Set of IDs from search matches
 
@@ -216,15 +217,31 @@ export class NetworkEngine {
         this.draw();
     }
 
-    selectNode(node) {
-        this.selectedNode = node;
-        this.relatedNodes.clear();
-        if (node) {
-            this.edges.forEach(edge => {
-                if (edge.source === node) this.relatedNodes.add(edge.target);
-                if (edge.target === node) this.relatedNodes.add(edge.source);
-            });
+    selectNode(node, multiSelect = false) {
+        if (!multiSelect) {
+            // Single selection - clear previous
+            this.selectedNodes = node ? [node] : [];
+        } else {
+            // Multi-selection - toggle
+            if (node) {
+                const index = this.selectedNodes.indexOf(node);
+                if (index > -1) {
+                    this.selectedNodes.splice(index, 1);
+                } else {
+                    this.selectedNodes.push(node);
+                }
+            }
         }
+
+        // Update related nodes for all selected nodes
+        this.relatedNodes.clear();
+        this.selectedNodes.forEach(selectedNode => {
+            this.edges.forEach(edge => {
+                if (edge.source === selectedNode) this.relatedNodes.add(edge.target);
+                if (edge.target === selectedNode) this.relatedNodes.add(edge.source);
+            });
+        });
+
         this.draw();
     }
 
@@ -354,11 +371,11 @@ export class NetworkEngine {
             if (tagConfig) color = tagConfig.color;
         }
 
-        // Dimming Logic
-        const isSelected = node === this.selectedNode;
+        // Dimming Logic - updated for multi-selection
+        const isSelected = this.selectedNodes.includes(node);
         const isRelated = this.relatedNodes.has(node);
-        // Dim if: (Selected node exists AND not selected/related) OR (Search active AND not in search results)
-        const dimBySelection = this.selectedNode && !isSelected && !isRelated;
+        // Dim if: (Selected nodes exist AND not selected/related) OR (Search active AND not in search results)
+        const dimBySelection = this.selectedNodes.length > 0 && !isSelected && !isRelated;
         const dimBySearch = this.highlightedIds && !this.highlightedIds.has(node.id);
 
         if (dimBySelection || dimBySearch) {
@@ -394,17 +411,7 @@ export class NetworkEngine {
         ctx.globalAlpha = 1; // Reset
     }
 
-    selectNode(node) {
-        this.selectedNode = node;
-        this.relatedNodes.clear();
-        if (node) {
-            this.edges.forEach(e => {
-                if (e.source === node) this.relatedNodes.add(e.target);
-                if (e.target === node) this.relatedNodes.add(e.source);
-            });
-        }
-        this.draw();
-    }
+
 
     // ================= Interactions =================
 
@@ -423,37 +430,9 @@ export class NetworkEngine {
         const pos = this.getMouseWorldPos(e);
         const clickedNode = this.hitTest(pos);
 
-        if (clickedNode) {
-            // 显示节点 ID，方便复制
-            const idDisplay = document.createElement('div');
-            idDisplay.style.cssText = `
-                position: fixed;
-                left: ${e.clientX + 10}px;
-                top: ${e.clientY + 10}px;
-                padding: 8px 12px;
-                background: rgba(0, 0, 0, 0.9);
-                color: #fff;
-                border-radius: 6px;
-                font-family: monospace;
-                font-size: 12px;
-                z-index: 10000;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                user-select: all;
-                cursor: text;
-            `;
-            idDisplay.innerHTML = `
-                <div style="margin-bottom: 4px; color: #aaa; font-size: 10px;">知识点 ID (可选中复制)</div>
-                <div style="color: #4ECDC4;">${clickedNode.id}</div>
-            `;
-            document.body.appendChild(idDisplay);
-
-            // 3秒后自动消失，或点击其他地方消失
-            const remove = () => {
-                idDisplay.remove();
-                document.removeEventListener('click', remove);
-            };
-            setTimeout(remove, 5000);
-            setTimeout(() => document.addEventListener('click', remove), 100);
+        if (clickedNode && this.onNodeDoubleClick) {
+            // 调用回调函数显示节点内容
+            this.onNodeDoubleClick(clickedNode);
         }
     }
 
@@ -480,18 +459,23 @@ export class NetworkEngine {
 
         const clickedNode = this.hitTest(pos);
 
-        if (e.shiftKey && clickedNode) {
-            // Start Linking Mode
+        if (e.shiftKey && clickedNode && !e.ctrlKey) {
+            // Shift without Ctrl: Start Linking Mode
             this.linkingNode = clickedNode;
             this.tempLinkEnd = { x: clickedNode.x, y: clickedNode.y };
+        } else if (clickedNode && (e.ctrlKey || e.metaKey)) {
+            // Ctrl/Cmd + Click: Multi-select (toggle)
+            this.selectNode(clickedNode, true);
         } else if (clickedNode) {
+            // Regular click: Single select and allow dragging
             this.isDraggingNode = true;
             this.draggedNode = clickedNode;
-            this.selectNode(clickedNode); // Highlight interactions
+            this.selectNode(clickedNode, false);
         } else {
+            // Click on background: Deselect all
             this.isDraggingCanvas = true;
             this.canvas.style.cursor = 'grabbing';
-            this.selectNode(null); // Deselect on background click
+            this.selectNode(null, false);
         }
     }
 

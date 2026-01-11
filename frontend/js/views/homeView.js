@@ -1,11 +1,18 @@
-import { store } from '../store.js?v=2';
+import { store } from '../store.js?v=3';
 import { Modal } from '../components/modal.js';
 import { ColorPicker } from '../components/colorPicker.js';
 import { Toast } from '../components/toast.js';
+import { undoManager } from '../undoManager.js';
 
 export class HomeView {
     constructor(rootElement) {
         this.root = rootElement;
+        this.selectedLibraryIds = new Set();
+
+        // 绑定键盘事件
+        this.handleKeyDown = this.handleKeyDown.bind(this);
+        window.addEventListener('keydown', this.handleKeyDown);
+        console.log('[HomeView] Constructor: keyboard event listener added');
     }
 
     async render() {
@@ -30,12 +37,17 @@ export class HomeView {
                                 <!-- Results here -->
                              </div>
                         </div>
+                        <div id="batch-actions" style="display: none; align-items: center; gap: 12px; background: var(--bg-dark-700); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--primary-color); margin-right: 12px;">
+                            <span id="selected-count" style="font-weight: bold; color: var(--primary-color);">已选 0 项</span>
+                            <button id="batch-delete-btn" class="btn" style="background: var(--danger-color); color: white; padding: 6px 12px; font-size: 0.9rem;">🗑️ 批量删除</button>
+                            <button id="cancel-selection-btn" class="btn btn-ghost" style="padding: 6px 12px; font-size: 0.9rem;">取消</button>
+                        </div>
                         <input type="file" id="import-input" accept=".json" style="display:none">
-                        <button id="import-btn" class="btn btn-ghost" title="导入知识库" style="border: 1px solid var(--glass-border); padding: 10px;">
-                            📥
+                        <button id="import-btn" class="btn btn-ghost" title="导入知识库" style="border: 1px solid var(--glass-border); padding: 8px 16px; display: flex; align-items: center; gap: 8px;">
+                            <span>📥</span> <span>导入</span>
                         </button>
-                        <button id="export-all-btn" class="btn btn-ghost" title="批量导出" style="border: 1px solid var(--glass-border); padding: 10px;">
-                            📤
+                        <button id="export-all-btn" class="btn btn-ghost" title="批量导出" style="border: 1px solid var(--glass-border); padding: 8px 16px; display: flex; align-items: center; gap: 8px;">
+                            <span>📤</span> <span>导出</span>
                         </button>
                         <button id="create-lib-btn" class="btn btn-primary" style="padding: 10px 20px;">
                             <span style="font-size: 1.2rem; line-height: 1;">+</span> 新建
@@ -47,17 +59,17 @@ export class HomeView {
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 40px;">
                     <div class="glass-panel" style="padding: 24px; border-radius: 16px; text-align: center; border: 1px solid var(--glass-border);">
                         <div style="font-size: 2rem; margin-bottom: 8px;">📁</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary-color);">${stats.total_libraries}</div>
+                        <div id="stat-total-libraries" style="font-size: 1.5rem; font-weight: 700; color: var(--primary-color);">${stats.total_libraries}</div>
                         <div style="color: var(--text-300); font-size: 0.9rem;">知识库数量</div>
                     </div>
                     <div class="glass-panel" style="padding: 24px; border-radius: 16px; text-align: center; border: 1px solid var(--glass-border);">
                         <div style="font-size: 2rem; margin-bottom: 8px;">💡</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: #4ECDC4;">${stats.total_points}</div>
+                        <div id="stat-total-points" style="font-size: 1.5rem; font-weight: 700; color: #4ECDC4;">${stats.total_points}</div>
                         <div style="color: var(--text-300); font-size: 0.9rem;">知识点总数</div>
                     </div>
                     <div class="glass-panel" style="padding: 24px; border-radius: 16px; text-align: center; border: 1px solid var(--glass-border);">
                         <div style="font-size: 2rem; margin-bottom: 8px;">🔗</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: #FF6B6B;">${stats.total_links}</div>
+                        <div id="stat-total-links" style="font-size: 1.5rem; font-weight: 700; color: #FF6B6B;">${stats.total_links}</div>
                         <div style="color: var(--text-300); font-size: 0.9rem;">关联总数</div>
                     </div>
                 </div>
@@ -98,8 +110,13 @@ export class HomeView {
             return;
         }
 
-        grid.innerHTML = libraries.map(lib => `
-            <div class="card fade-in" data-id="${lib.id}" style="cursor: pointer;">
+        grid.innerHTML = libraries.map(lib => {
+            const isSelected = this.selectedLibraryIds.has(lib.id);
+            const borderStyle = isSelected ? '2px solid var(--primary-color)' : '1px solid var(--glass-border)';
+            const bgStyle = isSelected ? 'background: rgba(var(--primary-hue), 70%, 60%, 0.1);' : '';
+
+            return `
+            <div class="card fade-in" data-id="${lib.id}" style="cursor: pointer; border: ${borderStyle}; ${bgStyle} transition: all 0.2s;">
                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
                     <h3 style="color: var(--primary-color);">${lib.name}</h3>
                     <div class="actions" onclick="event.stopPropagation()">
@@ -118,15 +135,35 @@ export class HomeView {
                     <span>📊 ${lib.point_count || 0} 知识点</span>
                     <span>🔗 ${lib.link_count || 0} 链接</span>
                 </div>
+                ${isSelected ? '<div style="position: absolute; top: 10px; right: 10px; background: var(--primary-color); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 14px;">✓</div>' : ''}
             </div>
-        `).join('');
+        `}).join('');
 
         // Bind card clicks
         grid.querySelectorAll('.card').forEach(card => {
-            card.onclick = () => {
+            card.onclick = (e) => {
                 const id = card.dataset.id;
-                // console.log('Navigate to library', id);
-                window.app.navigateTo('library', { id });
+
+                if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                    // Multi-select toggle
+                    if (this.selectedLibraryIds.has(id)) {
+                        this.selectedLibraryIds.delete(id);
+                    } else {
+                        this.selectedLibraryIds.add(id);
+                    }
+                    this.updateSelectionUI();
+                    this.renderLibraries(this.libraries); // Re-render to update UI
+                } else {
+                    if (this.selectedLibraryIds.size > 0) {
+                        // If in selection mode, clicking without modifier clears selection
+                        this.selectedLibraryIds.clear();
+                        this.updateSelectionUI();
+                        this.renderLibraries(this.libraries);
+                    } else {
+                        // Regular navigation
+                        window.app.navigateTo('library', { id });
+                    }
+                }
             };
 
             // Bind actions
@@ -142,12 +179,54 @@ export class HomeView {
         });
     }
 
+    async refreshStats() {
+        try {
+            const stats = await store.getGlobalStats();
+
+            // Update the three stat cards
+            // Update stats using IDs
+            const statLib = this.root.querySelector('#stat-total-libraries');
+            const statPoints = this.root.querySelector('#stat-total-points');
+            const statLinks = this.root.querySelector('#stat-total-links');
+
+            if (statLib) statLib.textContent = stats.total_libraries;
+            if (statPoints) statPoints.textContent = stats.total_points;
+            if (statLinks) statLinks.textContent = stats.total_links;
+        } catch (err) {
+            console.error('Failed to refresh stats:', err);
+        }
+    }
+
+    updateSelectionUI() {
+        const batchActions = this.root.querySelector('#batch-actions');
+        const countSpan = this.root.querySelector('#selected-count');
+        const count = this.selectedLibraryIds.size;
+
+        if (count > 0) {
+            batchActions.style.display = 'flex';
+            countSpan.textContent = `已选 ${count} 项`;
+        } else {
+            batchActions.style.display = 'none';
+        }
+    }
+
     bindEvents() {
         console.log('HomeView.bindEvents called');
         this.root.querySelector('#create-lib-btn').onclick = () => this.showCreateModal();
         this.root.querySelector('#export-all-btn').onclick = () => {
             console.log('Export button clicked');
             this.showExportModal();
+        };
+
+        // Batch Action Events
+        this.root.querySelector('#cancel-selection-btn').onclick = () => {
+            this.selectedLibraryIds.clear();
+            this.updateSelectionUI();
+            this.renderLibraries(this.libraries);
+        };
+
+        this.root.querySelector('#batch-delete-btn').onclick = () => {
+            this.handleBatchDelete();
         };
 
         // Import logic
@@ -385,9 +464,104 @@ export class HomeView {
     }
 
     async handleDelete(id) {
-        if (confirm('确定要删除这个知识库吗？此操作无法撤销。')) {
-            await store.deleteLibrary(id);
-            this.loadLibraries();
+        console.log('[HomeView] handleDelete called for library:', id);
+
+        if (!confirm('确定要删除这个知识库吗？\n警告：所有相关的知识点和链接都将被永久删除！')) {
+            return;
+        }
+
+        try {
+            // Backup data for undo
+            Toast.show('正在准备删除...', 'info');
+            const backupData = await store.getLibraryExportData(id);
+            console.log('[HomeView] Backup data retrieved:', backupData.meta.name);
+
+            await undoManager.execute({
+                description: `删除知识库 "${backupData.meta.name}"`,
+                execute: async () => {
+                    const success = await store.deleteLibrary(id);
+                    if (success) {
+                        await this.loadLibraries();
+                        await this.refreshStats();
+                        return true;
+                    }
+                    return false;
+                },
+                undo: async () => {
+                    console.log('Undoing library deletion, restoring:', backupData.meta.name);
+                    const blob = new Blob([JSON.stringify(backupData)], { type: 'application/json' });
+                    const file = new File([blob], `${backupData.meta.name}.json`, { type: 'application/json' });
+                    const result = await store.importLibrary(file);
+                    console.log('Import result:', result);
+                    await this.loadLibraries();
+                    await this.refreshStats();
+                }
+            });
+
+            Toast.show('知识库已删除 (Ctrl+Z 撤销)', 'success');
+        } catch (err) {
+            console.error('Delete failed:', err);
+            Toast.show('删除失败: ' + err.message, 'error');
+        }
+    }
+
+    async handleBatchDelete() {
+        const count = this.selectedLibraryIds.size;
+        if (count === 0) return;
+
+        // No confirmation dialog as requested
+
+        try {
+            Toast.show(`正在准备删除 ${count} 个知识库...`, 'info');
+            const backups = [];
+
+            // 1. Backup all data first
+            for (const id of this.selectedLibraryIds) {
+                try {
+                    const data = await store.getLibraryExportData(id);
+                    backups.push({ id, data });
+                } catch (e) {
+                    console.error(`Backup failed for ${id}`, e);
+                    Toast.show('备份失败，取消删除', 'error');
+                    return;
+                }
+            }
+
+            await undoManager.execute({
+                description: `批量删除 ${count} 个知识库`,
+                execute: async () => {
+                    let successCount = 0;
+                    for (const { id } of backups) {
+                        const success = await store.deleteLibrary(id);
+                        if (success) successCount++;
+                    }
+
+                    if (successCount > 0) {
+                        this.selectedLibraryIds.clear();
+                        this.updateSelectionUI();
+                        await this.loadLibraries();
+                        await this.refreshStats();
+                        return true;
+                    }
+                    return false;
+                },
+                undo: async () => {
+                    Toast.show('正在恢复知识库...', 'info');
+                    for (const { data } of backups) {
+                        const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                        const file = new File([blob], `${data.meta.name}.json`, { type: 'application/json' });
+                        await store.importLibrary(file);
+                    }
+                    await this.loadLibraries();
+                    await this.refreshStats();
+                    Toast.show('知识库已恢复', 'success');
+                }
+            });
+
+            Toast.show(`已删除 ${backups.length} 个知识库 (Ctrl+Z 撤销)`, 'success');
+        } catch (err) {
+            console.error('Batch delete failed:', err);
+            Toast.show('批量删除操作异常: ' + err.message, 'error');
         }
     }
 
@@ -536,7 +710,51 @@ export class HomeView {
         };
     }
 
+    async handleKeyDown(e) {
+        console.log('[HomeView] handleKeyDown called:', e.key, 'Ctrl:', e.ctrlKey, 'Shift:', e.shiftKey);
+
+        // Ctrl+Z 撤销
+        if (e.ctrlKey && !e.shiftKey && e.key === 'z') {
+            console.log('[HomeView] Ctrl+Z detected');
+            e.preventDefault();
+            if (undoManager.canUndo()) {
+                console.log('[HomeView] Executing undo...');
+                try {
+                    const action = await undoManager.undo();
+                    if (action) {
+                        Toast.show(`已撤销: ${action.description}`, 'info');
+                    }
+                } catch (err) {
+                    console.error('Undo failed:', err);
+                    Toast.show('撤销失败: ' + err.message, 'error');
+                }
+            } else {
+                console.log('[HomeView] No actions to undo');
+                Toast.show('没有可撤销的操作', 'info');
+            }
+        }
+
+        // Ctrl+Shift+Z 恢复
+        if (e.ctrlKey && e.shiftKey && e.key === 'Z') {
+            e.preventDefault();
+            if (undoManager.canRedo()) {
+                try {
+                    const action = await undoManager.redo();
+                    if (action) {
+                        Toast.show(`已恢复: ${action.description}`, 'info');
+                    }
+                } catch (err) {
+                    console.error('Redo failed:', err);
+                    Toast.show('恢复失败: ' + err.message, 'error');
+                }
+            } else {
+                Toast.show('没有可恢复的操作', 'info');
+            }
+        }
+    }
+
     destroy() {
-        // Cleanup if needed
+        // 清理键盘事件监听器
+        window.removeEventListener('keydown', this.handleKeyDown);
     }
 }

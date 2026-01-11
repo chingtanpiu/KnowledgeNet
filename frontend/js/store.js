@@ -213,6 +213,15 @@ class Store {
 
     // ================= Export =================
 
+    async getLibraryExportData(libraryId) {
+        // Fetch JSON export data directly without downloading
+        const response = await fetch(`${API_BASE}/libraries/${libraryId}/export?format=json`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch export data');
+        }
+        return await response.json();
+    }
+
     async exportLibrary(libraryId, format = 'json', tagFilter = null) {
         let url = `${API_BASE}/libraries/${libraryId}/export?format=${format}`;
         if (tagFilter) {

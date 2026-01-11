@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
@@ -241,10 +242,12 @@ def export_library(
 
     if format == "json":
         data = {
-            "library": {
-                "id": library.id,
-                "name": library.name,
-                "description": library.description,
+            "meta": {
+                "id": library["id"],
+                "name": library["name"],
+                "description": library["description"],
+                "tags": [{"name": t.name, "color": t.color, "id": t.id} for t in library.get("tags", [])],
+                "sources": [{"name": s.name, "id": s.id} for s in library.get("sources", [])],
             },
             "points": [
                 {
@@ -254,6 +257,8 @@ def export_library(
                     "source": p.source,
                     "page": p.page,
                     "tags": [t.name for t in p.tags],
+                    "x": p.x,
+                    "y": p.y
                 }
                 for p in points
             ],
@@ -265,13 +270,13 @@ def export_library(
         return Response(
             content=json.dumps(data, ensure_ascii=False, indent=2),
             media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="{library.name}.json"'}
+            headers={"Content-Disposition": f'attachment; filename="{quote(library["name"])}.json"'}
         )
 
     elif format == "markdown":
-        lines = [f"# {library.name}\n"]
-        if library.description:
-            lines.append(f"{library.description}\n")
+        lines = [f"# {library['name']}\n"]
+        if library.get("description"):
+            lines.append(f"{library['description']}\n")
         lines.append("\n## 知识点\n")
         for p in points:
             tags = ", ".join(t.name for t in p.tags)
@@ -284,7 +289,7 @@ def export_library(
         return Response(
             content=content,
             media_type="text/markdown",
-            headers={"Content-Disposition": f'attachment; filename="{library.name}.md"'}
+            headers={"Content-Disposition": f'attachment; filename="{quote(library["name"])}.md"'}
         )
 
     elif format == "csv":
@@ -305,7 +310,7 @@ def export_library(
         return Response(
             content=output.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{library.name}.csv"'}
+            headers={"Content-Disposition": f'attachment; filename="{quote(library["name"])}.csv"'}
         )
 
 

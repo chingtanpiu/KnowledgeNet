@@ -1,23 +1,29 @@
 :root {
     /* Color Palette - Vibrant & Premium */
-    --primary-hue: 250; /* Deep Violet/Indigo */
+    --primary-hue: 250;
+    /* Deep Violet/Indigo */
     --primary-color: hsl(var(--primary-hue), 70%, 60%);
     --primary-hover: hsl(var(--primary-hue), 80%, 65%);
     --primary-glow: hsla(var(--primary-hue), 70%, 60%, 0.5);
 
-    --accent-hue: 320; /* Pink/Magenta */
+    --accent-hue: 320;
+    /* Pink/Magenta */
     --accent-color: hsl(var(--accent-hue), 80%, 60%);
-    
+
     --success-color: hsl(150, 70%, 45%);
     --warning-color: hsl(35, 90%, 60%);
     --danger-color: hsl(0, 80%, 60%);
     --info-color: hsl(200, 80%, 55%);
 
     /* Dark Mode Base (Default) */
-    --bg-dark-900: hsl(240, 20%, 8%);  /* Almost black */
-    --bg-dark-800: hsl(240, 20%, 12%); /* Dark gray */
-    --bg-dark-700: hsl(240, 15%, 16%); /* Card bg */
-    --bg-dark-600: hsl(240, 15%, 22%); /* Hover bg */
+    --bg-dark-900: hsl(240, 20%, 8%);
+    /* Almost black */
+    --bg-dark-800: hsl(240, 20%, 12%);
+    /* Dark gray */
+    --bg-dark-700: hsl(240, 15%, 16%);
+    /* Card bg */
+    --bg-dark-600: hsl(240, 15%, 22%);
+    /* Hover bg */
 
     --text-100: hsl(0, 0%, 98%);
     --text-200: hsl(240, 10%, 80%);
@@ -66,32 +72,53 @@ body.light-mode {
     padding: 0;
 }
 
-html, body {
+html,
+body {
     height: 100%;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     background-color: var(--bg-dark-900);
     color: var(--text-100);
-    overflow: hidden; /* Prevent body scroll, custom scroll containers */
+    overflow: hidden;
+    /* Prevent body scroll, custom scroll containers */
     -webkit-font-smoothing: antialiased;
 }
 
 body {
-    background-image: 
+    background-image:
         radial-gradient(circle at 10% 20%, var(--bg-dark-800) 0%, transparent 40%),
         radial-gradient(circle at 90% 80%, hsla(var(--primary-hue), 30%, 15%, 0.3) 0%, transparent 40%);
+    user-select: none;
+    /* 禁止选中文本 */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 /* Typography */
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
     font-weight: 700;
     letter-spacing: -0.02em;
     color: var(--text-100);
 }
 
-h1 { font-size: 2.5rem; }
-h2 { font-size: 2rem; }
-h3 { font-size: 1.5rem; }
-h4 { font-size: 1.25rem; }
+h1 {
+    font-size: 2.5rem;
+}
+
+h2 {
+    font-size: 2rem;
+}
+
+h3 {
+    font-size: 1.5rem;
+}
+
+h4 {
+    font-size: 1.25rem;
+}
 
 p {
     line-height: 1.6;
@@ -103,13 +130,16 @@ p {
     width: 8px;
     height: 8px;
 }
+
 ::-webkit-scrollbar-track {
     background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
     background: var(--bg-dark-600);
     border-radius: var(--radius-full);
 }
+
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-300);
 }
@@ -177,10 +207,29 @@ p {
 
 /* Animations */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .fade-in {
     animation: fadeIn var(--transition-smooth) forwards;
+}
+
+/* Allow text selection in input fields and textareas */
+input,
+textarea,
+.form-input,
+.form-textarea,
+.form-select {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
 }

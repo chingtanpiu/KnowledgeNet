@@ -42,8 +42,16 @@ export class LibraryView {
                         <input type="text" id="search-input" placeholder="🔍 搜索知识点..." 
                             style="background: rgba(30, 30, 46, 0.8); border: 1px solid var(--glass-border); color: #fff; padding: 8px 12px; border-radius: 6px; backdrop-filter: blur(10px); width: 200px; transition: width 0.3s; outline: none;">
                     </div>
-                    <button id="stats-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px);" title="统计">📊</button>
-                    <button id="export-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px);" title="导出">📥</button>
+                    <input type="file" id="import-library-input" accept=".json" style="display:none">
+                    <button id="import-library-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px); padding: 8px 16px; display: flex; align-items: center; gap: 6px;" title="导入知识库">
+                        <span>📥</span> <span>导入</span>
+                    </button>
+                    <button id="export-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px); padding: 8px 16px; display: flex; align-items: center; gap: 6px;" title="导出">
+                        <span>📤</span> <span>导出</span>
+                    </button>
+                    <button id="stats-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px); padding: 8px 16px; display: flex; align-items: center; gap: 6px;" title="统计">
+                        <span>📊</span> <span>统计</span>
+                    </button>
                     <button id="close-btn" class="btn btn-ghost" style="background: rgba(30,30,46,0.8); backdrop-filter: blur(10px);" title="返回" onclick="window.app.navigateTo('home')">✖️</button>
                 </div>
 
@@ -83,6 +91,26 @@ export class LibraryView {
     bindEvents() {
         this.root.querySelector('#stats-btn').onclick = () => this.showStatsModal();
         this.root.querySelector('#export-btn').onclick = () => this.showExportModal();
+
+        // Import functionality
+        const importInput = this.root.querySelector('#import-library-input');
+        this.root.querySelector('#import-library-btn').onclick = () => importInput.click();
+        importInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                Toast.show('正在导入...', 'info');
+                const result = await store.importLibrary(file);
+                Toast.show(`成功导入 ${result.count} 个知识库`, 'success');
+                // Reload current view to show imported data
+                window.location.reload();
+            } catch (err) {
+                console.error(err);
+                Toast.show('导入失败: ' + err.message, 'error');
+            }
+            e.target.value = ''; // Reset input
+        };
     }
 
     initFilterLogic() {
@@ -187,7 +215,7 @@ export class LibraryView {
 
     async initNetwork() {
         // Dynamic import
-        const { NetworkEngine } = await import('../network/engine.js');
+        const { NetworkEngine } = await import('../network/engine.js?v=4');
         const canvas = document.getElementById('network-canvas');
 
         const points = await store.getPoints(this.libraryId);
@@ -199,7 +227,8 @@ export class LibraryView {
             edges: links,
             libraryConfig: this.library,
             onContextMenu: (params) => this.handleContextMenu(params),
-            onLink: (source, target) => this.handleCreateLink(source, target)
+            onLink: (source, target) => this.handleCreateLink(source, target),
+            onNodeDoubleClick: (node) => this.showNodeContentModal(node)
         });
 
         this.network.start();
@@ -425,18 +454,30 @@ export class LibraryView {
 
     handleContextMenu({ event, node, edge, x, y, worldX, worldY }) {
         const items = [];
+        const selectedCount = this.network.selectedNodes.length;
 
         if (node) {
-            // Node Context Menu
-            items.push(
-                { label: '✨ 添加关联知识点', action: () => this.showCreateLinkedPointModal(node) },
-                { label: '✏️ 编辑知识点', action: () => this.showEditPointModal(node) },
-                { label: '🔗 添加链接 (输入ID)', action: () => this.showLinkByIdModal(node) },
-                { label: '📜 版本历史', action: () => this.showSnapshotModal(node) },
-                { label: '📤 导出相关知识点', action: () => this.exportRelatedPoints(node) },
-                { label: '🔗 删除与此节点的链接', danger: true, action: () => this.showDeleteLinksModal(node) },
-                { label: '🗑️ 删除知识点', danger: true, action: () => this.handleDeletePoint(node) }
-            );
+            // Check if clicked node is part of selection
+            const isInSelection = this.network.selectedNodes.includes(node);
+
+            if (isInSelection && selectedCount > 1) {
+                // Batch operations for multiple selected nodes
+                items.push(
+                    { label: `🗑️ 批量删除 (${selectedCount} 个节点)`, danger: true, action: () => this.handleBatchDeletePoints() },
+                    { label: `📤 批量导出 (${selectedCount} 个节点)`, action: () => this.handleBatchExport() }
+                );
+            } else {
+                // Single node operations
+                items.push(
+                    { label: '✨ 基于此添加新知识点', action: () => this.showCreateLinkedPointModal(node) },
+                    { label: '✏️ 编辑知识点', action: () => this.showEditPointModal(node) },
+                    { label: '🔗 添加链接 (输入ID)', action: () => this.showLinkByIdModal(node) },
+                    { label: '📜 版本历史', action: () => this.showSnapshotModal(node) },
+                    { label: '📤 导出相关知识点', action: () => this.exportRelatedPoints(node) },
+                    { label: '🔗 删除与此节点的链接', danger: true, action: () => this.showDeleteLinksModal(node) },
+                    { label: '🗑️ 删除知识点', danger: true, action: () => this.handleDeletePoint(node) }
+                );
+            }
         } else if (edge) {
             // Edge Context Menu
             items.push(
@@ -447,8 +488,7 @@ export class LibraryView {
             // Background Context Menu
             items.push(
                 { label: '✨ 新增知识点', action: () => this.showCreatePointModal(worldX, worldY) },
-                { label: '📜 全局版本历史', action: () => this.showGlobalHistoryModal() },
-                { label: '📊 导出知识图谱 (AI用)', action: () => this.exportKnowledgeGraph() }
+                { label: '📜 全局版本历史', action: () => this.showGlobalHistoryModal() }
             );
         }
 
@@ -662,10 +702,11 @@ export class LibraryView {
                 <input type="text" id="linked-point-page" class="form-input" style="width: 100px;">
             </div>
             <div class="form-group">
-                <label class="form-label">链接类型</label>
+                <label class="form-label">关系类型 *</label>
                 <select id="linked-point-type" class="form-select">
-                    <option value="related">🔗 相关</option>
-                    <option value="child">⬇️ 子级 (新节点是子节点)</option>
+                    <option value="parent">⬆️ 将当前知识点作为父知识点</option>
+                    <option value="child">⬇️ 将当前知识点作为子知识点</option>
+                    <option value="related">🔗 与当前知识点呈相关关系</option>
                 </select>
             </div>
         `;
@@ -1091,6 +1132,105 @@ export class LibraryView {
         modal.show();
     }
 
+    showNodeContentModal(node) {
+        // Remove any existing content card
+        const existingCard = document.getElementById('node-content-card');
+        if (existingCard) {
+            existingCard.remove();
+        }
+
+        // Get node position in screen coordinates
+        const canvas = document.getElementById('network-canvas');
+        const rect = canvas.getBoundingClientRect();
+        const camera = this.network.camera;
+
+        // Transform node world coordinates to screen coordinates
+        const screenX = rect.left + (canvas.width / 2) + (node.x + camera.x) * camera.k;
+        const screenY = rect.top + (canvas.height / 2) + (node.y + camera.y) * camera.k;
+
+        // Create floating content card
+        const card = document.createElement('div');
+        card.id = 'node-content-card';
+        card.style.cssText = `
+            position: fixed;
+            left: ${screenX + 50}px;
+            top: ${screenY}px;
+            width: 400px;
+            max-width: 90vw;
+            max-height: 500px;
+            background: var(--bg-dark-800);
+            border: 2px solid var(--primary-color);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+            z-index: 10000;
+            overflow-y: auto;
+            animation: fadeIn 0.2s ease-out;
+        `;
+
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                <div style="flex: 1;">
+                    <div style="font-size: 1.1rem; font-weight: 600; color: var(--primary-color); margin-bottom: 6px;">${node.title}</div>
+                    <div style="color: var(--text-300); font-size: 0.8rem;">
+                        📚 ${node.source || '未知来源'} ${node.page ? `· 第 ${node.page} 页` : ''}
+                    </div>
+                </div>
+                <button id="close-content-card" style="background: none; border: none; color: var(--text-300); cursor: pointer; font-size: 1.5rem; padding: 0; line-height: 1; margin-left: 12px;">&times;</button>
+            </div>
+            <div style="background: var(--bg-dark-900); padding: 14px; border-radius: 8px; border: 1px solid var(--glass-border); margin-bottom: 12px; max-height: 300px; overflow-y: auto;">
+                <div style="white-space: pre-wrap; line-height: 1.6; color: var(--text-200); font-size: 0.9rem;">${node.content || '无内容'}</div>
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                ${(node.tags || []).map(tag => {
+            const tagObj = typeof tag === 'string'
+                ? this.library.tags.find(t => t.name === tag)
+                : tag;
+            const color = tagObj?.color || '#888';
+            const name = typeof tag === 'string' ? tag : tag.name;
+            return `<span style="display: inline-block; padding: 3px 8px; background: ${color}22; border: 1px solid ${color}; border-radius: 12px; font-size: 0.75rem; color: ${color};">${name}</span>`;
+        }).join('')}
+            </div>
+        `;
+
+        document.body.appendChild(card);
+
+        // Adjust position if card goes off screen
+        const cardRect = card.getBoundingClientRect();
+        if (cardRect.right > window.innerWidth) {
+            card.style.left = `${screenX - cardRect.width - 50}px`;
+        }
+        if (cardRect.bottom > window.innerHeight) {
+            card.style.top = `${window.innerHeight - cardRect.height - 20}px`;
+        }
+        if (cardRect.top < 0) {
+            card.style.top = '20px';
+        }
+
+        // Close button handler
+        document.getElementById('close-content-card').onclick = () => {
+            card.remove();
+        };
+
+        // Close on click outside
+        const closeOnClickOutside = (e) => {
+            if (!card.contains(e.target)) {
+                card.remove();
+                document.removeEventListener('click', closeOnClickOutside);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeOnClickOutside), 100);
+
+        // Close on Escape key
+        const closeOnEscape = (e) => {
+            if (e.key === 'Escape') {
+                card.remove();
+                document.removeEventListener('keydown', closeOnEscape);
+            }
+        };
+        document.addEventListener('keydown', closeOnEscape);
+    }
+
     showEditPointModal(node) {
         // Find existing tag/source
         const currentTag = node.tags && node.tags.length ? (typeof node.tags[0] === 'string' ? node.tags[0] : node.tags[0].name) : '';
@@ -1220,6 +1360,129 @@ export class LibraryView {
 
             Toast.show('知识点已删除 (Ctrl+Z 撤销)', 'success');
         }
+    }
+
+    async handleBatchDeletePoints() {
+        const selectedNodes = this.network.selectedNodes;
+        const count = selectedNodes.length;
+
+        // Collect all data for undo
+        const deletedData = [];
+
+        for (const node of selectedNodes) {
+            const nodeData = {
+                id: node.id,
+                libraryId: this.libraryId,
+                title: node.title,
+                content: node.content,
+                tags: (node.tags || []).map(t => typeof t === 'string' ? t : t.name),
+                source: node.source,
+                page: node.page,
+                x: node.x,
+                y: node.y
+            };
+
+            const relatedLinks = this.network.edges
+                .filter(e => e.source.id === node.id || e.target.id === node.id)
+                .map(e => ({
+                    fromId: e.source.id,
+                    toId: e.target.id,
+                    type: e.type,
+                    id: e.id
+                }));
+
+            deletedData.push({ nodeData, relatedLinks });
+        }
+
+        await undoManager.execute({
+            description: `批量删除 ${count} 个知识点`,
+            execute: async () => {
+                for (const { nodeData } of deletedData) {
+                    await store.deletePoint(nodeData.id);
+                    this.network.removeNode(nodeData.id);
+                }
+                return true;
+            },
+            undo: async () => {
+                // First, restore all deleted nodes
+                const idMapping = {}; // Map old IDs to new IDs
+                for (const { nodeData } of deletedData) {
+                    const restored = await store.createPoint(nodeData);
+                    this.network.addNode(restored);
+                    idMapping[nodeData.id] = restored.id;
+                }
+
+                // Then, restore all links
+                for (const { nodeData, relatedLinks } of deletedData) {
+                    for (const link of relatedLinks) {
+                        // Map old IDs to new IDs (or keep if node wasn't deleted)
+                        const fromId = idMapping[link.fromId] || link.fromId;
+                        const toId = idMapping[link.toId] || link.toId;
+
+                        // Check if both nodes exist (either restored or never deleted)
+                        const fromExists = this.network.nodes.find(n => n.id === fromId);
+                        const toExists = this.network.nodes.find(n => n.id === toId);
+
+                        if (fromExists && toExists) {
+                            const newLink = await store.createLink({
+                                fromId: fromId,
+                                toId: toId,
+                                type: link.type
+                            });
+                            if (newLink) this.network.addEdge(newLink);
+                        }
+                    }
+                }
+            }
+        });
+
+        Toast.show(`已删除 ${count} 个知识点 (Ctrl+Z 撤销)`, 'success');
+        this.network.selectNode(null, false); // Clear selection
+    }
+
+    async handleBatchExport() {
+        const selectedNodes = this.network.selectedNodes;
+        const nodeIds = selectedNodes.map(n => n.id);
+
+        // Get all links between selected nodes
+        const relevantLinks = this.network.edges.filter(e =>
+            nodeIds.includes(e.source.id) && nodeIds.includes(e.target.id)
+        );
+
+        const exportData = {
+            library: {
+                id: this.library.id,
+                name: `${this.library.name} - 选中节点`,
+                description: `从 ${this.library.name} 导出的 ${selectedNodes.length} 个知识点`,
+                tags: this.library.tags,
+                sources: this.library.sources
+            },
+            points: selectedNodes.map(n => ({
+                id: n.id,
+                title: n.title,
+                content: n.content,
+                tags: n.tags,
+                source: n.source,
+                page: n.page,
+                x: n.x,
+                y: n.y
+            })),
+            links: relevantLinks.map(e => ({
+                from_id: e.source.id,
+                to_id: e.target.id,
+                type: e.type
+            }))
+        };
+
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.library.name}_selected_${selectedNodes.length}nodes.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        Toast.show(`已导出 ${selectedNodes.length} 个知识点`, 'success');
     }
 
     async handleCreateLink(source, target) {
