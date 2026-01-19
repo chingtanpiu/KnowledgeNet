@@ -257,8 +257,8 @@ export class HomeView {
         searchInput.oninput = (e) => {
             const query = e.target.value.trim();
 
-            // 1. Filter local library cards
-            this.filterLibraries(query);
+            // 1. Filter local library cards - DISABLED
+            // this.filterLibraries(query); // Don't hide libraries when searching globally
 
             // 2. Clear previous results
             resultsPanel.style.display = 'none';
@@ -458,6 +458,7 @@ export class HomeView {
 
                 modal.hide();
                 this.loadLibraries(); // Refresh
+                await this.refreshStats();
             }
         });
         modal.show();
